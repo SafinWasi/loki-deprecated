@@ -7,10 +7,37 @@ Command-line Python OpenID Connect Client
 from oauthlib.oauth2 import WebApplicationClient, BackendApplicationClient
 from requests_oauthlib.oauth2_session import OAuth2Session
 import requests
-from log import log
-import os, base64
+import os, sys
+
+import logging, os
+from dotenv import load_dotenv
+import structlog
+
+load_dotenv()
+log_level = os.getenv("LOG_LEVEL", "INFO")
+log_level = logging.getLevelName(log_level)
+
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper("iso"),
+        structlog.dev.ConsoleRenderer()
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(log_level),
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=False
+)
+
+log = structlog.get_logger()
+
+
 
 cls = lambda:os.system('cls' if os.name=='nt' else 'clear')
+
 
 class Loki:
     def __init__(self, host, client_id, client_secret, verify_ssl=True):
@@ -20,7 +47,7 @@ class Loki:
         self.client_id = client_id
         self.client_secret = client_secret
         self.verify_ssl = verify_ssl
-        self.load_wellknown()
+        self.openid_configuration = self.load_wellknown()
 
     def start_flow(self):
         if not self.verify_ssl:
@@ -86,5 +113,16 @@ class Loki:
     def load_wellknown(self):
         response = requests.get(f"{self.host}/.well-known/openid-configuration")
         response.raise_for_status()
-        self.openid_configuration = response.json()
+        return response.json()
 
+if __name__ == '__main__':
+    host = os.getenv("HOST")
+    client_id = os.getenv("CLIENT_ID")
+    client_secret = os.getenv("CLIENT_SECRET")
+    verify_ssl = os.getenv("VERIFY_SSL", "True")
+    if verify_ssl == "True":
+        verify_ssl = True
+    else:
+        verify_ssl = False
+    loki = Loki(host, client_id, client_secret)
+    loki.start_flow()
