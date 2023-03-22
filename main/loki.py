@@ -7,8 +7,6 @@ Command-line Python OpenID Connect Client
 from oauthlib.oauth2 import WebApplicationClient, BackendApplicationClient
 from requests_oauthlib.oauth2_session import OAuth2Session
 import requests
-import os, sys
-
 import logging, os
 from dotenv import load_dotenv
 import structlog
@@ -85,13 +83,13 @@ class Loki:
 
 
     def client_credentials(self):
-        print("Enter scopes separated by a space: ", end="")
-        scopes = input()
-        scopeArray = scopes.split(" ")
+        scopeArray = self.get_scopes()
         client = BackendApplicationClient(self.client_id, scope=scopeArray)
-        self.client = OAuth2Session(client=client)
+        client = OAuth2Session(client=client)
         try:
-            token = self.client.fetch_token(self.openid_configuration["token_endpoint"], client_secret=self.client_secret)
+            token = client.fetch_token(self.openid_configuration["token_endpoint"], 
+                client_secret=self.client_secret, 
+                verify=self.verify_ssl)
             log.debug(token)
         except Exception as e:
             log.error(f"Authentication failed: {e}")
@@ -99,8 +97,26 @@ class Loki:
         return token
 
     def authorization_code(self):
-        log.error("Not yet implemented")
-        raise NotImplementedError
+        scopeArray = self.get_scopes()
+        print("Enter redirect uri of client registered on authorization server: ", end="")
+        redirect_uri = input()
+        client = WebApplicationClient(client_id=self.client_id)
+        client = OAuth2Session(client=client, scope=scopeArray, redirect_uri=redirect_uri)
+        auth_endpoint = self.openid_configuration["authorization_endpoint"]
+        uri, state = client.authorization_url(auth_endpoint)
+        print(f"Please visit\n{uri}\nand login...")
+        print("Once done, please paste the redirected url from your browser window here: ", end="")
+        auth_response = input()
+        try:
+            token = client.fetch_token(self.openid_configuration["token_endpoint"],
+                authorization_response=auth_response, 
+                verify=self.verify_ssl,
+                client_secret=self.client_secret)
+            log.debug(token)
+        except Exception as e:
+            log.error(f"Authentication failed: {e}")
+            return None
+        return token
 
     def implicit(self):
         log.error("Not yet implemented")
@@ -111,9 +127,17 @@ class Loki:
         raise NotImplementedError
     
     def load_wellknown(self):
-        response = requests.get(f"{self.host}/.well-known/openid-configuration")
+        response = requests.get(f"{self.host}/.well-known/openid-configuration", verify=self.verify_ssl)
         response.raise_for_status()
         return response.json()
+    
+    def get_scopes(self):
+        print("Enter scopes separated by a space [default: openid]: ", end="")
+        scopes = input()
+        if len(scopes) == 0:
+            return ["openid"]
+        scopeArray = scopes.split(" ")
+        return scopeArray
 
 if __name__ == '__main__':
     host = os.getenv("HOST")
@@ -124,5 +148,5 @@ if __name__ == '__main__':
         verify_ssl = True
     else:
         verify_ssl = False
-    loki = Loki(host, client_id, client_secret)
+    loki = Loki(host, client_id, client_secret, verify_ssl)
     loki.start_flow()
