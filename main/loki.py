@@ -7,7 +7,7 @@ Command-line Python OpenID Connect Client
 from oauthlib.oauth2 import WebApplicationClient, BackendApplicationClient
 from requests_oauthlib.oauth2_session import OAuth2Session
 import requests
-import logging, os
+import logging, os, json
 from dotenv import load_dotenv
 import structlog
 
@@ -49,24 +49,25 @@ class Loki:
 
     def start_flow(self):
         if not self.verify_ssl:
-            log.warning("VERIFY_SSL set to False. It is STRONGLY recommended to use HTTPS for OAuth2.")
+            log.warning("VERIFY_SSL set to False. It is STRONGLY recommended to use HTTPS for OAuth 2.")
         choice = None
         while choice == None:
             print("\t 1: Authorization Code Grant")
             print("\t 2: Client Credentials Grant")
             print("\t 3: Implicit Grant")
             print("\t 4: Hybrid Grant")
+            print("\t 5: OpenID Dynamic Client Registration")
             print("Please select flow: ", end="")
             choice = input()
             try:
                 choice = int(choice)
-                if choice < 1 or choice > 4:
+                if choice < 1 or choice > 5:
                     cls()
-                    print("Invalid input, please choose [1-4]")
+                    print("Invalid input, please choose [1-5]")
                     choice = None
             except Exception:
                 cls()
-                print("Invalid input, please choose [1-4]")
+                print("Invalid input, please choose [1-5]")
                 choice = None
         if choice == 1:
             token = self.authorization_code()
@@ -74,8 +75,14 @@ class Loki:
             token = self.client_credentials()
         elif choice == 3:
             token = self.implicit()
-        else:
+        elif choice == 4:
             token = self.hybrid()
+        elif choice == 5:
+            self.dynamic_client_reg()
+            return
+        else:
+            log.error("Invalid choice")
+            return
         if token:
             print(f"Access token obtained: {token['access_token']}")
         else:
@@ -125,6 +132,42 @@ class Loki:
     def hybrid(self):
         log.error("Not yet implemented")
         raise NotImplementedError
+    
+    def dynamic_client_reg(self):
+        registration_endpoint = self.openid_configuration["registration_endpoint"]
+        print("Name of new client (optional): ", end="")
+        clientName = input()
+        print("Software statement (optional): ", end="")
+        ssa = input()
+        print("Redirect URIs (space separated): ", end="")
+        redirect_uri = input()
+        redirect_uri_array = redirect_uri.split(" ")
+        if len(redirect_uri) == 0:
+            log.error("At least one redirect URI must be provided.")
+            return
+        body = {
+            "application_type": "web",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "subject_type": "pairwise",
+            "redirect_uris": redirect_uri_array,
+            "grant_types": ["client_credentials"],
+            "response_types": ["token"]
+        }
+        if len(clientName) != 0:
+            body["client_name"] = clientName
+        if len(ssa) != 0:
+            body["software_statement"] = ssa
+        
+        response = requests.post(registration_endpoint, json=body, verify=self.verify_ssl)
+        response.raise_for_status()
+        log.debug(response.json())
+        with open("credentials.json", "w") as f:
+            print("Writing client credentials...")
+            credentials = {
+                "client_id": response.json()["client_id"],
+                "client_secret": response.json()["client_secret"]
+            }
+            f.write(json.dumps(credentials, indent=4))
     
     def load_wellknown(self):
         response = requests.get(f"{self.host}/.well-known/openid-configuration", verify=self.verify_ssl)
