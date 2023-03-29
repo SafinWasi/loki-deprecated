@@ -121,3 +121,4 @@ include
 *.sw?
 *.code-workspace
 
+*.json
