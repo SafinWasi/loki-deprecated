@@ -161,7 +161,7 @@ class Loki:
         response = requests.post(registration_endpoint, json=body, verify=self.verify_ssl)
         response.raise_for_status()
         log.debug(response.json())
-        with open(response.json()["client_id"], "w") as f:
+        with open(response.json()["client_id"] + ".json", "w") as f:
             print("Writing client credentials...")
             credentials = {
                 "client_id": response.json()["client_id"],
