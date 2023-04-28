@@ -46,6 +46,9 @@ class Loki:
         self.client_secret = client_secret
         self.verify_ssl = verify_ssl
         self.openid_configuration = self.load_wellknown()
+        clientPath = os.path.join(os.getcwd(), "clients")
+        if not os.path.isdir(clientPath):
+            os.mkdir(clientPath)
 
     def start_flow(self):
         if not self.verify_ssl:
@@ -57,17 +60,22 @@ class Loki:
             print("\t 3: Implicit Grant")
             print("\t 4: Hybrid Grant")
             print("\t 5: OpenID Dynamic Client Registration")
+            print("\t 6: Exit")
             print("Please select flow: ", end="")
-            choice = input()
+            try:
+                choice = input()
+            except KeyboardInterrupt:
+                print("\nExiting")
+                exit()
             try:
                 choice = int(choice)
-                if choice < 1 or choice > 5:
+                if choice < 1 or choice > 6:
                     cls()
-                    print("Invalid input, please choose [1-5]")
+                    print("Invalid input, please choose [1-6]")
                     choice = None
             except Exception:
                 cls()
-                print("Invalid input, please choose [1-5]")
+                print("Invalid input, please choose [1-6]")
                 choice = None
         if choice == 1:
             token = self.authorization_code()
@@ -80,6 +88,8 @@ class Loki:
         elif choice == 5:
             self.dynamic_client_reg()
             return
+        elif choice == 6:
+            exit()
         else:
             log.error("Invalid choice")
             return
@@ -142,16 +152,18 @@ class Loki:
         print("Redirect URIs (space separated): ", end="")
         redirect_uri = input()
         redirect_uri_array = redirect_uri.split(" ")
+        scopes = self.get_scopes()
         if len(redirect_uri) == 0:
             log.error("At least one redirect URI must be provided.")
             return
         body = {
             "application_type": "web",
             "token_endpoint_auth_method": "client_secret_basic",
-            "subject_type": "pairwise",
+            "subject_type": "public",
             "redirect_uris": redirect_uri_array,
             "grant_types": ["client_credentials"],
-            "response_types": ["token"]
+            "response_types": ["token"],
+            "scope": scopes
         }
         if len(clientName) != 0:
             body["client_name"] = clientName
@@ -159,8 +171,8 @@ class Loki:
             body["software_statement"] = ssa
         
         response = requests.post(registration_endpoint, json=body, verify=self.verify_ssl)
-        response.raise_for_status()
         log.debug(response.json())
+        response.raise_for_status()
         with open(response.json()["client_id"] + ".json", "w") as f:
             print("Writing client credentials...")
             credentials = {
@@ -170,8 +182,12 @@ class Loki:
             f.write(json.dumps(credentials, indent=4))
     
     def load_wellknown(self):
-        response = requests.get(f"{self.host}/.well-known/openid-configuration", verify=self.verify_ssl)
-        response.raise_for_status()
+        try:
+            response = requests.get(f"{self.host}/.well-known/openid-configuration", verify=self.verify_ssl)
+            response.raise_for_status()
+        except Exception as e:
+            log.warning(f"Failed to connect to authentication server: {e}")
+            exit()
         return response.json()
     
     def get_scopes(self):
