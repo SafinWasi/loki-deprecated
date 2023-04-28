@@ -122,3 +122,5 @@ include
 *.code-workspace
 
 *.json
+# Clients
+clients/
